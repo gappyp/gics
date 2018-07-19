@@ -13,6 +13,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from gics.help import parse_edi
 from geomag.kdu_viewer.help import AttrDict
+import csv
 
 pd.options.display.max_rows = 1000
 
@@ -34,8 +35,9 @@ parser.add_argument('-c', action="store", dest="col_order", type=str, help='orde
 parser.add_argument('--figs', action="store_true", dest="show_figs", help='show figures')
 
 init_args = shlex.split(init_args, comments=True)
+all_args = init_args+sys.argv[1:]
 
-args = parser.parse_args(init_args+sys.argv[1:])
+args = parser.parse_args(all_args)
 
 temp = []
 for fn in args.fns:
@@ -88,14 +90,7 @@ df.interpolate(limit=3, inplace=True)       # TODO: replace with missing sample 
 # need to replace with 0.0
 df.fillna(0.0, inplace=True)
 
-print(args.show_figs)
-
-if args.show_figs:
-    df.plot(subplots=True)
-    plt.figure()
-
 # ======================================================================================================================
-
 # take dfts
 dfts = AttrDict()
 for col in df.columns:
@@ -116,15 +111,35 @@ if args.lb != None:
 if args.ub != None:
     bpf[args.ub < f] = 0.0
 
-der_Ex_f = bpf*(Z.xx*dfts.Bx+Z.xy*dfts.By)
-der_Ex_t = np.fft.irfft(der_Ex_f)
+# ----------------------------------------------------------------------------------------------------------------------
+# write to the dataframe
+for E_comp, (m1, m2) in zip(['Ex', 'Ey'], [(Z.xx, Z.xy), (Z.yx, Z.yy)]):
+    df[E_comp+'_bpf_der'] = np.fft.irfft(bpf*(m1*dfts.Bx+m2*dfts.By))
 
-exp_Ex_f = dfts.Ex
-exp_Ex_f[~mask] = 0.0
-exp_Ex_f *= bpf
-exp_Ex_t = np.fft.irfft(exp_Ex_f)
+    # experimental filtered
+    temp = dfts.Ex
+    temp[~mask] = 0.0
+    temp *= bpf
+    df[E_comp+'_bpf'    ] = np.fft.irfft(temp)
 
+# ----------------------------------------------------------------------------------------------------------------------
+# TODO: should start 2 threads here... one for writing to screen/file, one for plotting data
+# plot if want to
 if args.show_figs:
-    plt.plot(der_Ex_t, alpha=0.7)
-    plt.plot(exp_Ex_t, alpha=0.7)
+    df[['Ex', 'Ey', 'Bx', 'By']].plot(subplots=True)
+    df[['Ex_bpf', 'Ex_bpf_der']].plot(alpha=0.7)
+    df[['Ey_bpf', 'Ey_bpf_der']].plot(alpha=0.7)
     plt.show()
+
+# ----------------------------------------------------------------------------------------------------------------------
+def write_output(fp):
+    print('#'+str(args), file=fp)
+    df.to_csv(fp, date_format='%Y-%m-%dT%H:%M:%SZ', float_format='%.2f', quoting=csv.QUOTE_NONE)          # % is the old way of doing string formating in python
+
+if args.out_fn is None:
+    write_output(sys.stdout)
+else:
+    with args.out_fn.open('w') as fp:
+        write_output(fp)
+
+
