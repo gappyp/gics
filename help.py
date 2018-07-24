@@ -24,12 +24,12 @@ def parse_edi(fna):
                 line = next(fp)
             except StopIteration:
                 break
-            for header in ['>FREQ NFREQ', '>ZXXR', '>ZXXI', '>ZXYR', '>ZXYI', '>ZYXR', '>ZYXI', '>ZYYR', '>ZYYI']:
+            for header in ['>FREQ', '>ZXXR', '>ZXXI', '>ZXYR', '>ZXYI', '>ZYXR', '>ZYXI', '>ZYYR', '>ZYYI']:
                 if header in line:
                     # read until encounter new line
                     while True:
                         line = next(fp)
-                        if line == '\n':
+                        if line == '\n' or line[0] == '>':
                             break
                         else:
                             line_sw = line.split()
@@ -37,7 +37,7 @@ def parse_edi(fna):
 
     # store vals with better keys and create complex number types
     #f_smpls = [np.log10(x) for x in vals['>FREQ NFREQ']]       # samples provided by lemigraph. in log scale
-    f_smpls = vals['>FREQ NFREQ']       # samples provided by lemigraph. in linear scale
+    f_smpls = vals['>FREQ']       # samples provided by lemigraph. in linear scale
     Z_smpls = AttrDict()
     Z_smpls['xx'] = [(rl+img*1j) for rl, img in zip(vals['>ZXXR'], vals['>ZXXI'])]
     Z_smpls['xy'] = [(rl+img*1j) for rl, img in zip(vals['>ZXYR'], vals['>ZXYI'])]
