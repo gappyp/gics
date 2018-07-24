@@ -11,8 +11,7 @@ import itertools
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-from gics.help import parse_edi
-from geomag.kdu_viewer.help import AttrDict
+from gics.help import parse_edi, AttrDict
 import csv
 
 pd.options.display.max_rows = 1000
