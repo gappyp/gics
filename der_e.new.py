@@ -11,19 +11,22 @@ from pprint import pprint
 import itertools
 import pandas as pd
 import numpy as np
+from numpy import pi
 import matplotlib.pyplot as plt
 from gics.help import parse_edi, AttrDict, parse_intvl, get_bounds, dt_parser, parse_pos      # helper function and classes
 from gics.help import lemi2dd
 import csv
 import time
+from scipy.interpolate import interp1d
 
 # ======================================================================================================================
 hidden_init_fn = (Path(__file__).resolve().parent) / '.der_e'
 
 parser = argparse.ArgumentParser(description='Derive electric field using impedance tensor and magnetic field data')
+group = parser.add_mutually_exclusive_group()
 
 parser.add_argument('-f', action='append', dest='fns', type=str, default=[], help='lemiMT time series file to include in processing')
-parser.add_argument('-i', action="store", dest="it_fn", type=Path, help='lemiMT .edi impedance tensor file')
+group.add_argument('-i', action="store", dest="it_fn", type=Path, help='lemiMT .edi impedance tensor file')
 parser.add_argument('-o', action="store", dest="out_fn", type=Path, help='Output file (if not specified will be outputted to stdout)')
 #parser.add_argument('--interval', action="store", dest="intvl", type=str, help='Interval (if data isn\'t provided, will be zero padded). If this option isn\'t specified, will determine from time series files')
 parser.add_argument('--max-ts-gap', action="store", dest="max_ts_gap", type=int, default=0, help='Maximum number of missing samples that will linearly interpolate')
@@ -33,7 +36,9 @@ parser.add_argument('-c', action="store", dest="col_order", type=str, default='6
 parser.add_argument('-s', action="store", dest="signs", type=str, default='p,p,p,p', help='Signs to apply to Bx,By,Ex,Ey')
 parser.add_argument('--figs', action="store_true", dest="show_figs", help='Plot figures of source and derived data')
 parser.add_argument('--init-fn', action="store", dest="init_fn", type=Path, default=hidden_init_fn, help='Use a different initialization file')
-parser.add_argument('--position', action="store", dest="position", type=str, default='17,18,19,20', help='Used to select 3d model site. Either col. number of time-series file positions or decimal degrees lat long. Defaults to 17,18,19,20.')
+#parser.add_argument('--position', action="store", dest="position", type=str, default='17,18,19,20', help='Used to select 3d model site. Either col. number of time-series file positions or decimal degrees lat long. Defaults to 17,18,19,20.')
+group.add_argument('--sigma', action="store", dest="sigma", type=float, help='Sigma for half-space')
+group.add_argument('--id', action="store", dest="id", type=str, help='3d model site id')
 
 # ----------------------------------------------------------------------------------------------------------------------
 args = parser.parse_args(sys.argv[1:])
@@ -49,6 +54,15 @@ else:
 
 all_args = init_args+sys.argv[1:]
 args = parser.parse_args(all_args)
+
+if args.it_fn:
+    pass
+elif args.sigma:
+    pass
+elif args.id:
+    pass
+else:
+    sys.exit('No impedance tensor source specified')
 
 # ----------------------------------------------------------------------------------------------------------------------
 # deal with glob style filenames and check if files exist
@@ -68,16 +82,12 @@ for fn in args.fns:
 args.fns = temp
 
 # ======================================================================================================================
-# parse impedance tensor
-Z, (Z_ll, Z_ul) = parse_edi(args.it_fn)         # TODO: otherwise half-space... and will use max possible bounds if not specified
-
 # parse interval
 # args.intvl = parse_intvl(args.intvl)          # TODO: function needs completing
 args.intvl = None                               # will return None if not specified...  # TODO: need parse_intvl to accept None and return it
 
 # change col order so can be used by pandas
 args.col_order = [int(x) for x in args.col_order.split(',')]            # TODO: need to test validity
-args.position = [int(x) for x in args.position.split(',')]            # TODO: use parse pos to get pos if not already there!!!
 
 # ----------------------------------------------------------------------------------------------------------------------
 # take a peak at time-series file start and end time
@@ -92,7 +102,6 @@ args.fns = sorted(args.fns, key=lambda x: x[1][0])
 # ----------------------------------------------------------------------------------------------------------------------
 COLS_DT = ['Y', 'm', 'd', 'H', 'M', 'S']
 COLS_BE = ['Bx', 'By', 'Ex', 'Ey']
-COLS_P = ['lat', 'lon']
 
 # OLD...
 # read in the data
@@ -126,9 +135,49 @@ df.fillna(0.0, inplace=True)
 # take dfts
 dfts = AttrDict()
 for col in df.columns:
-    dfts[col] = np.fft.rfft(df[col].data)
+    dfts[col] = np.fft.rfft(df[col])
 
 f = np.fft.rfftfreq(n=len(df.index))
+
+# ======================================================================================================================
+u0 = 1.25663706*(10**-6)                        # perm. of free space. from google
+# don't pass 0 frequencies to this...
+def gen_C_hs(f, sigma):
+    #print('my sig is... {}'.format(sigma))
+    # for half-space C = 1/q
+    q = np.sqrt(1j*u0*sigma*2*pi*f)
+    C = 1.0/q
+    return C
+
+# parse impedance tensor
+if args.it_fn:
+    Z, (Z_ll, Z_ul) = parse_edi(args.it_fn)
+elif args.sigma:
+    Z_ll = f[1]
+    Z_ul = f[-1]
+    Z = AttrDict()
+    Z.xx = lambda f: 0.0
+    Z.yy = Z.xx
+    Z.xy = lambda f: gen_C_hs(f, sigma=args.sigma)*(1j)*2*pi*f*(10**-3)         # negative power 3 must be for SI -> mv/(km*nt)???
+    Z.yx = lambda f: -1.0*Z.xy(f)
+    # liejun wanted to look @ some values
+    #print(Z.xy(0.001))
+    #print(Z.xy(0.01))
+    #print(Z.xy(0.1))
+elif args.id:
+    ljw_model = pd.read_csv(Path(r"G:\python_projs\gics\respo_2777sites_TAS_edited.dat"), delim_whitespace=True, skiprows=8, header=None)
+    ljw_model['f'] = 1/ljw_model[0]
+    this_site = ljw_model.loc[(ljw_model[2] == -36.75) & (ljw_model[3] == 143.25)]             # TODO: replace with site
+    Z_ll = this_site.iloc[-1].f
+    Z_ul = this_site.iloc[0].f
+    Z = AttrDict()
+    for comp in ['ZXX', 'ZXY', 'ZYX', 'ZYY']:
+        this_comp = this_site.loc[this_site[7] == comp]
+        Z[comp[1:].lower()] = interp1d(this_comp['f'], this_comp[8]+this_comp[8]*1j, kind='cubic')
+    print(Z_ll, Z_ul)
+
+#print(Z_ll, Z_ul)
+#sys.exit()
 
 temp = AttrDict()
 for interp_funct in Z:
@@ -170,7 +219,7 @@ def write_output(fp):
 
 if args.out_fn is None:
     pass
-    write_output(sys.stdout)
+    #write_output(sys.stdout)
 else:
     with args.out_fn.open('w') as fp:
         write_output(fp)
