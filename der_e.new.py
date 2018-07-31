@@ -12,7 +12,8 @@ import itertools
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-from gics.help import parse_edi, AttrDict, parse_intvl, reverse_readline      # helper function and classes
+from gics.help import parse_edi, AttrDict, parse_intvl, get_bounds, dt_parser, parse_pos      # helper function and classes
+from gics.help import lemi2dd
 import csv
 import time
 
@@ -32,6 +33,7 @@ parser.add_argument('-c', action="store", dest="col_order", type=str, default='6
 parser.add_argument('-s', action="store", dest="signs", type=str, default='p,p,p,p', help='Signs to apply to Bx,By,Ex,Ey')
 parser.add_argument('--figs', action="store_true", dest="show_figs", help='Plot figures of source and derived data')
 parser.add_argument('--init-fn', action="store", dest="init_fn", type=Path, default=hidden_init_fn, help='Use a different initialization file')
+parser.add_argument('--position', action="store", dest="position", type=str, default='17,18,19,20', help='Used to select 3d model site. Either col. number of time-series file positions or decimal degrees lat long. Defaults to 17,18,19,20.')
 
 # ----------------------------------------------------------------------------------------------------------------------
 args = parser.parse_args(sys.argv[1:])
@@ -74,66 +76,33 @@ Z, (Z_ll, Z_ul) = parse_edi(args.it_fn)         # TODO: otherwise half-space... 
 args.intvl = None                               # will return None if not specified...  # TODO: need parse_intvl to accept None and return it
 
 # change col order so can be used by pandas
-args.col_order = [int(x) for x in args.col_order.split(',')]
-
-# ======================================================================================================================
-# from https://stackoverflow.com/questions/12269528/using-python-pandas-to-parse-csv-with-date-in-format-year-day-hour-min-sec
-def dt_parser(Y, m, d, H, M, S):
-    return np.datetime64('{}-{}-{}T{}:{}:{}'.format(Y, m, d, H, M, S))      # TODO: figure out if np.datetime doesn't need to come from string... maybe a tuple?
+args.col_order = [int(x) for x in args.col_order.split(',')]            # TODO: need to test validity
+args.position = [int(x) for x in args.position.split(',')]            # TODO: use parse pos to get pos if not already there!!!
 
 # ----------------------------------------------------------------------------------------------------------------------
 # take a peak at time-series file start and end time
-# TODO: compare methods!!! (just reading in and discarding or peek @ back)
+temp = []
+for fn in args.fns:
+    temp.append((fn, get_bounds(fn)))
+args.fns = temp         # args.fns now contains info about the bounds/timespan/interval of each file
 
-b4 = time.time()
-# get date of first sample in file
-with args.fns[0].open('r') as fp:
-    for line in fp:
-        if line.isspace(): continue
-        else:
-            # get datetime so can allocate
-            line_sws = line.split()
-            fn_start_dt = '{}-{}-{}T{}:{}:{}'.format(*line_sws[:7])
-            break
-
-# get date of last sample in file
-for line in reverse_readline(args.fns[0]):
-    if line.isspace(): continue
-    else:
-        # get datetime so can allocate
-        line_sws = line.split()
-        fn_end_dt = '{}-{}-{}T{}:{}:{}'.format(*line_sws[:7])
-        break
-else:
-    pass
-    # TODO:
-
-print(fn_start_dt, fn_end_dt)
-print(time.time()-b4)
-
-# **********************************************************************************************************************
-b4 = time.time()
-df = pd.read_csv(args.fns[0], delim_whitespace=True, header=None, parse_dates={'datetime': list(range(6))},
-                 index_col='datetime', date_parser=dt_parser, usecols=list(range(6))+[6, 7, 11, 12],
-                 comment='#'
-                 )
-print(df.iloc[0], df.iloc[-1])
-print(time.time()-b4)
-
-sys.exit()
+# sort based on start of interval
+args.fns = sorted(args.fns, key=lambda x: x[1][0])
 
 # ----------------------------------------------------------------------------------------------------------------------
+COLS_DT = ['Y', 'm', 'd', 'H', 'M', 'S']
+COLS_BE = ['Bx', 'By', 'Ex', 'Ey']
+COLS_P = ['lat', 'lon']
+
+# OLD...
 # read in the data
 COLS = ['Bx', 'By', 'Ex', 'Ey']
 dfs = []
-for fn in args.fns:
+for fn, _ in args.fns:
     df = pd.read_csv(fn, delim_whitespace=True, header=None, parse_dates={'datetime': list(range(6))},
-                     index_col='datetime', date_parser=dt_parser, usecols=list(range(6))+[6, 7, 11, 12],
-                     comment='#'        # TODO: think shouldn't support this comment
-                     )
+                     index_col='datetime', date_parser=dt_parser, usecols=list(range(6))+args.col_order)
     # change names
-    #df = df.rename(columns={6:'Bx', 7:'By', 11:'Ex', 12:'Ey'})
-    df = df.rename(columns=dict(zip(args.col_order, COLS)))
+    df = df.rename(columns=dict(zip(args.col_order, COLS_BE)))
     dfs.append(df)
 
 df = pd.concat(dfs, axis='rows')
@@ -201,7 +170,7 @@ def write_output(fp):
 
 if args.out_fn is None:
     pass
-    #write_output(sys.stdout)
+    write_output(sys.stdout)
 else:
     with args.out_fn.open('w') as fp:
         write_output(fp)
