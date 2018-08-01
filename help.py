@@ -60,49 +60,9 @@ def parse_edi(fna):
     for key, val in Z_smpls.items():
         Z_css[key] = interp1d(f_smpls, val, kind='cubic')
 
-    return Z_css, (f_smpls[0], f_smpls[-1])
+    Z_smpls['f'] = f_smpls
 
-# ======================================================================================================================
-iso_fmt = '%Y-%m-%dT%H:%M:%S'
-
-# TODO: this is going to take some time to work on... try get a version out where this feature can come later (i.e. so data derived interval is only supported)
-# parse the --interval option given to der_e.py from command line
-# I intend it to be iso8601 format, but this function mightn't fully comply with it
-# https://en.wikipedia.org/wiki/ISO_8601#Time_intervals
-# this should hopefully parse time intervals expresses as 1,2,3 from the above link
-def parse_intvl(intvl):
-    if not isinstance(intvl, str):
-        raise TypeError('str parsing only supported')       # TODO: confirm this is the way to set exception message
-
-    intvl_ss = intvl.split('/')     # split slash
-
-    if len(intvl_ss) != 2:
-        raise ValueError("Interval needs one '/' character")
-
-    p1, p2 = intvl_ss
-
-    try:
-        p1 = datetime.datetime.strptime(p1, iso_fmt)
-    except ValueError:
-        pass
-
-    print(p1)
-
-# ======================================================================================================================
-def parse_pos(pos):
-    if not isinstance(pos, str):
-        raise TypeError('str parsing only supported')       # TODO: confirm this is the way to set exception message
-
-    pos_sc = pos.split(',')     # split comma
-
-    if len(pos_sc) not in [2, 4]:
-        raise ValueError("Invalid --position argument")
-
-    if len(pos_sc) == 2:
-        return tuple([float(x) for x in pos_sc])
-
-    if len(pos_sc) == 4:
-        return [int(x) for x in pos_sc]
+    return Z_css, (f_smpls[0], f_smpls[-1]), Z_smpls
 
 # ======================================================================================================================
 # from https://stackoverflow.com/questions/2301789/read-a-file-in-reverse-order-using-python
@@ -181,3 +141,6 @@ def lemi2dd(p1, p2):
 
     return (float(deg)+float('{}.{}'.format(min, dec))/60.0)*l2m[p2]
 
+def invl_intersection(*args):
+    ls, us = zip(*args)
+    return (max(ls), min(us))

@@ -13,7 +13,7 @@ import pandas as pd
 import numpy as np
 from numpy import pi
 import matplotlib.pyplot as plt
-from gics.help import parse_edi, AttrDict, parse_intvl, get_bounds, dt_parser, parse_pos      # helper function and classes
+from gics.help import parse_edi, AttrDict, dt_parser, get_bounds, invl_intersection
 from gics.help import lemi2dd
 import csv
 import time
@@ -28,17 +28,15 @@ group = parser.add_mutually_exclusive_group()
 parser.add_argument('-f', action='append', dest='fns', type=str, default=[], help='lemiMT time series file to include in processing')
 group.add_argument('-i', action="store", dest="it_fn", type=Path, help='lemiMT .edi impedance tensor file')
 parser.add_argument('-o', action="store", dest="out_fn", type=Path, help='Output file (if not specified will be outputted to stdout)')
-#parser.add_argument('--interval', action="store", dest="intvl", type=str, help='Interval (if data isn\'t provided, will be zero padded). If this option isn\'t specified, will determine from time series files')
 parser.add_argument('--max-ts-gap', action="store", dest="max_ts_gap", type=int, default=0, help='Maximum number of missing samples that will linearly interpolate')
 parser.add_argument('--lb', action="store", dest="lb", type=float, help='Lower f bound (Hz, linear scale) for bandpass filter (if not specified will use impedance tensor range)')
 parser.add_argument('--ub', action="store", dest="ub", type=float, help='Upper f bound (Hz, linear scale) for bandpass filter (if not specified will use impedance tensor range)')
 parser.add_argument('-c', action="store", dest="col_order", type=str, default='6,7,11,12', help='Column numbers of Bx,By,Ex,Ey in time series file (if not specified will use 6,7,11,12)')
-parser.add_argument('-s', action="store", dest="signs", type=str, default='p,p,p,p', help='Signs to apply to Bx,By,Ex,Ey')
+parser.add_argument('-s', action="store", dest="signs", type=str, default='p,p,p,p', help='Signs to apply to Bx,By,Ex,Ey default (p,p,p,p)')
 parser.add_argument('--figs', action="store_true", dest="show_figs", help='Plot figures of source and derived data')
 parser.add_argument('--init-fn', action="store", dest="init_fn", type=Path, default=hidden_init_fn, help='Use a different initialization file')
-#parser.add_argument('--position', action="store", dest="position", type=str, default='17,18,19,20', help='Used to select 3d model site. Either col. number of time-series file positions or decimal degrees lat long. Defaults to 17,18,19,20.')
 group.add_argument('--sigma', action="store", dest="sigma", type=float, help='Sigma for half-space')
-group.add_argument('--id', action="store", dest="id", type=str, help='3d model site id')
+group.add_argument('--id', action="store", dest="id", type=str, help='3d model lat,long (e.g. 36.75S,143.25E)')
 
 # ----------------------------------------------------------------------------------------------------------------------
 args = parser.parse_args(sys.argv[1:])
@@ -56,13 +54,15 @@ all_args = init_args+sys.argv[1:]
 args = parser.parse_args(all_args)
 
 if args.it_fn:
-    pass
+    source_str = str(args.it_fn)
 elif args.sigma:
-    pass
+    source_str = '{} ohm/m'.format(args.sigma)
 elif args.id:
-    pass
+    source_str = str(args.id)
+    l2s = {'N':1.0, 'S':-1.0, 'E':1.0, 'W':-1.0}        # letter to sign
+    args.id = [float(x[:-1])*l2s[x[-1]] for x in args.id.split(',')]
 else:
-    sys.exit('No impedance tensor source specified')
+    sys.exit('No impedance tensor source specified')        # TODO: make this print out to error
 
 # ----------------------------------------------------------------------------------------------------------------------
 # deal with glob style filenames and check if files exist
@@ -77,17 +77,13 @@ for fn in args.fns:
     else:
         single_file = Path(fn).absolute()
         if not single_file.is_file():
-            sys.exit('Time series file "{}" does not exist'.format(single_file))
+            sys.exit('Time series file "{}" does not exist'.format(single_file))        # TODO: to error
         temp.append(single_file)
 args.fns = temp
 
 # ======================================================================================================================
-# parse interval
-# args.intvl = parse_intvl(args.intvl)          # TODO: function needs completing
-args.intvl = None                               # will return None if not specified...  # TODO: need parse_intvl to accept None and return it
-
 # change col order so can be used by pandas
-args.col_order = [int(x) for x in args.col_order.split(',')]            # TODO: need to test validity
+args.col_order = [int(x) for x in args.col_order.split(',')]        # TODO: make these robust like the sign multiplier
 
 # ----------------------------------------------------------------------------------------------------------------------
 # take a peak at time-series file start and end time
@@ -151,7 +147,7 @@ def gen_C_hs(f, sigma):
 
 # parse impedance tensor
 if args.it_fn:
-    Z, (Z_ll, Z_ul) = parse_edi(args.it_fn)
+    Z, (Z_ll, Z_ul), smpls = parse_edi(args.it_fn)
 elif args.sigma:
     Z_ll = f[1]
     Z_ul = f[-1]
@@ -167,7 +163,7 @@ elif args.sigma:
 elif args.id:
     ljw_model = pd.read_csv(Path(r"G:\python_projs\gics\respo_2777sites_TAS_edited.dat"), delim_whitespace=True, skiprows=8, header=None)
     ljw_model['f'] = 1/ljw_model[0]
-    this_site = ljw_model.loc[(ljw_model[2] == -36.75) & (ljw_model[3] == 143.25)]             # TODO: replace with site
+    this_site = ljw_model.loc[(ljw_model[2] == args.id[0]) & (ljw_model[3] == args.id[1])]             # TODO: replace with site
     Z_ll = this_site.iloc[-1].f
     Z_ul = this_site.iloc[0].f
     Z = AttrDict()
@@ -178,7 +174,7 @@ elif args.id:
 
 #print(Z_ll, Z_ul)
 #sys.exit()
-
+# ======================================================================================================================
 temp = AttrDict()
 for interp_funct in Z:
     temp[interp_funct] = np.zeros(len(f), dtype=np.complex128)       # everything will be zero otherwise
@@ -187,10 +183,16 @@ for interp_funct in Z:
 Z = temp
 
 bpf = np.ones(len(f))
-if args.lb != None:
-    bpf[f < args.lb] = 0.0
-if args.ub != None:
-    bpf[args.ub < f] = 0.0
+
+
+if args.lb == None:
+    args.lb = 0.0
+if args.ub == None:
+    args.ub = float('inf')
+
+bpf[0] = 0.0        # zero out dc
+bpf[f < args.lb] = 0.0
+bpf[args.ub < f] = 0.0
 
 # ----------------------------------------------------------------------------------------------------------------------
 # write to the dataframe
@@ -207,6 +209,13 @@ for E_comp, (m1, m2) in zip(['Ex', 'Ey'], [(Z.xx, Z.xy), (Z.yx, Z.yy)]):
 # TODO: should start 2 threads here... one for writing to screen/file, one for plotting data
 # plot if want to
 if args.show_figs:
+    # plot the impedance tensor over effective range
+    plt.scatter(smpls.f, np.abs(smpls.xx))
+    #plt.scatter(smpls.f, np.abs(smpls.xy))
+    #plt.scatter(smpls.f, np.abs(smpls.yx))
+    #plt.scatter(smpls.f, np.abs(smpls.yy))
+    plt.xscale('log')
+    plt.yscale('log')
     df[['Ex', 'Ey', 'Bx', 'By']].plot(subplots=True)
     df[['Ex_bpf', 'Ex_bpf_der']].plot(alpha=0.7)
     df[['Ey_bpf', 'Ey_bpf_der']].plot(alpha=0.7)
@@ -214,14 +223,20 @@ if args.show_figs:
 
 # ----------------------------------------------------------------------------------------------------------------------
 def write_output(fp):
-    print('#'+str(args), file=fp)
+    print('# Z source: '+source_str, file=fp)
+    print('# Z F range: '+'{} to {} Hz (inclusive)'.format(Z_ll, Z_ul), file=fp)
+    print('# Bandpass filter range: {} to {} Hz (exclusive)'.format(args.lb, args.ub), file=fp)
+    print('# DFT F bin range: {} to {} Hz'.format(f[1], f[-1]), file=fp)
+    effective = invl_intersection((Z_ll, Z_ul), (args.lb, args.ub), (f[1], f[-1]))
+    print('# Effective F range: {} to {} Hz'.format(*effective), file=fp)               # TODO: untested
+    print('# Time-series files: {}'.format([str(fn) for (fn, _) in args.fns]), file=fp)
+    print('# Signs: {}'.format(args.signs), file=fp)
+    print('# t range: {} to {}'.format(df.index[0], df.index[-1]), file=fp)
+    print('# Samples: {}'.format(len(df.index)), file=fp)
     df.to_csv(fp, date_format='%Y-%m-%dT%H:%M:%SZ', float_format='%.2f', quoting=csv.QUOTE_NONE)          # % is the old way of doing string formating in python
 
 if args.out_fn is None:
-    pass
-    #write_output(sys.stdout)
+    write_output(sys.stdout)
 else:
     with args.out_fn.open('w') as fp:
         write_output(fp)
-
-
