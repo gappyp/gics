@@ -180,19 +180,27 @@ for interp_funct in Z:
     temp[interp_funct] = np.zeros(len(f), dtype=np.complex128)       # everything will be zero otherwise
     mask = (Z_ll <= f) & (f <= Z_ul)
     temp[interp_funct][mask] = Z[interp_funct](f[mask])
+
+    if args.show_figs:
+        plt.scatter(smpls.f, np.abs(smpls[interp_funct]))
+        plt.plot(f[mask], np.abs(temp[interp_funct][mask]), label=interp_funct)
+        plt.xscale('log')
+        plt.yscale('log')
+
+
 Z = temp
 
 bpf = np.ones(len(f))
 
 
 if args.lb == None:
-    args.lb = 0.0
+    args.lb = f[1]           # try negative inf
 if args.ub == None:
-    args.ub = float('inf')
+    args.ub = f[-1]          # TODO: need to set this to nquist freq
 
 bpf[0] = 0.0        # zero out dc
-bpf[f < args.lb] = 0.0
-bpf[args.ub < f] = 0.0
+bpf[f <= args.lb] = 0.0
+bpf[args.ub <= f] = 0.0
 
 # ----------------------------------------------------------------------------------------------------------------------
 # write to the dataframe
@@ -209,13 +217,13 @@ for E_comp, (m1, m2) in zip(['Ex', 'Ey'], [(Z.xx, Z.xy), (Z.yx, Z.yy)]):
 # TODO: should start 2 threads here... one for writing to screen/file, one for plotting data
 # plot if want to
 if args.show_figs:
-    # plot the impedance tensor over effective range
-    plt.scatter(smpls.f, np.abs(smpls.xx))
-    #plt.scatter(smpls.f, np.abs(smpls.xy))
-    #plt.scatter(smpls.f, np.abs(smpls.yx))
-    #plt.scatter(smpls.f, np.abs(smpls.yy))
-    plt.xscale('log')
-    plt.yscale('log')
+    plt.legend()
+    plt.xlabel('f (Hz)')
+    plt.ylabel('Z (mV/(km*nT))')
+    plt.title(source_str)
+    # bandpass filter
+    plt.axvspan(args.lb, args.ub, alpha=0.05)
+
     df[['Ex', 'Ey', 'Bx', 'By']].plot(subplots=True)
     df[['Ex_bpf', 'Ex_bpf_der']].plot(alpha=0.7)
     df[['Ey_bpf', 'Ey_bpf_der']].plot(alpha=0.7)
