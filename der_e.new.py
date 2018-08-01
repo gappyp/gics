@@ -57,6 +57,7 @@ if args.it_fn:
     source_str = str(args.it_fn)
 elif args.sigma:
     source_str = '{} ohm/m'.format(args.sigma)
+    smpls = None
 elif args.id:
     source_str = str(args.id)
     l2s = {'N':1.0, 'S':-1.0, 'E':1.0, 'W':-1.0}        # letter to sign
@@ -164,13 +165,18 @@ elif args.id:
     ljw_model = pd.read_csv(Path(r"G:\python_projs\gics\respo_2777sites_TAS_edited.dat"), delim_whitespace=True, skiprows=8, header=None)
     ljw_model['f'] = 1/ljw_model[0]
     this_site = ljw_model.loc[(ljw_model[2] == args.id[0]) & (ljw_model[3] == args.id[1])]             # TODO: replace with site
+    assert len(this_site) != 0      # invalid key
+    # fill out smpls
+    smpls = AttrDict()
+
     Z_ll = this_site.iloc[-1].f
     Z_ul = this_site.iloc[0].f
     Z = AttrDict()
     for comp in ['ZXX', 'ZXY', 'ZYX', 'ZYY']:
         this_comp = this_site.loc[this_site[7] == comp]
         Z[comp[1:].lower()] = interp1d(this_comp['f'], this_comp[8]+this_comp[8]*1j, kind='cubic')
-    print(Z_ll, Z_ul)
+        smpls[comp[1:].lower()] = this_comp[8]+this_comp[8]*1j
+        smpls.f = this_comp.f
 
 #print(Z_ll, Z_ul)
 #sys.exit()
@@ -182,8 +188,11 @@ for interp_funct in Z:
     temp[interp_funct][mask] = Z[interp_funct](f[mask])
 
     if args.show_figs:
-        plt.scatter(smpls.f, np.abs(smpls[interp_funct]))
-        plt.plot(f[mask], np.abs(temp[interp_funct][mask]), label=interp_funct)
+        if smpls != None:
+            pass
+            plt.scatter(smpls.f, np.abs(smpls[interp_funct]), alpha=0.7, label=None)
+        if args.sigma != None and (interp_funct in ['xx', 'yy']):continue       # bit of a hack lol
+        plt.plot(f[mask], np.abs(temp[interp_funct][mask]), label=interp_funct, alpha=0.7)
         plt.xscale('log')
         plt.yscale('log')
 
@@ -211,7 +220,7 @@ for E_comp, (m1, m2) in zip(['Ex', 'Ey'], [(Z.xx, Z.xy), (Z.yx, Z.yy)]):
     temp = dfts[E_comp]
     temp[~mask] = 0.0
     temp *= bpf
-    df[E_comp+'_bpf'    ] = np.fft.irfft(temp)
+    df[E_comp+'_bpf_orig'    ] = np.fft.irfft(temp)
 
 # ----------------------------------------------------------------------------------------------------------------------
 # TODO: should start 2 threads here... one for writing to screen/file, one for plotting data
@@ -219,14 +228,14 @@ for E_comp, (m1, m2) in zip(['Ex', 'Ey'], [(Z.xx, Z.xy), (Z.yx, Z.yy)]):
 if args.show_figs:
     plt.legend()
     plt.xlabel('f (Hz)')
-    plt.ylabel('Z (mV/(km*nT))')
+    plt.ylabel('|Z| (mV/(km*nT))')
     plt.title(source_str)
     # bandpass filter
     plt.axvspan(args.lb, args.ub, alpha=0.05)
 
     df[['Ex', 'Ey', 'Bx', 'By']].plot(subplots=True)
-    df[['Ex_bpf', 'Ex_bpf_der']].plot(alpha=0.7)
-    df[['Ey_bpf', 'Ey_bpf_der']].plot(alpha=0.7)
+    df[['Ex_bpf_orig', 'Ex_bpf_der']].plot(alpha=0.7)
+    df[['Ey_bpf_orig', 'Ey_bpf_der']].plot(alpha=0.7)
     plt.show()
 
 # ----------------------------------------------------------------------------------------------------------------------
