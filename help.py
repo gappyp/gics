@@ -50,10 +50,26 @@ def parse_edi(fna):
     Z_smpls['yx'] = [(rl+img*1j) for rl, img in zip(vals['>ZYXR'], vals['>ZYXI'])]
     Z_smpls['yy'] = [(rl+img*1j) for rl, img in zip(vals['>ZYYR'], vals['>ZYYI'])]
 
+    # assert Z_smpls are the same length
+    assert len(set([len(smpls) for smpls in list(Z_smpls.values())+[f_smpls]])) == 1
+
     # for some reason frequency and values are decending. reverse it
     f_smpls.reverse()
     for key, val in Z_smpls.items():
         val.reverse()
+
+    # assuming if it's missing in 1 component, it will be missing in all
+    tempZ = AttrDict()
+    tempZ.xx = []; tempZ.xy = []; tempZ.yx = []; tempZ.yy = []
+    tempf = list()
+    for f, xx, xy, yx, yy in zip(f_smpls, *Z_smpls.values()):
+        if 1e+32+1e+32j in [xx, xy, yx, yy]:
+            continue
+        else:
+            tempf.append(f)
+            tempZ.xx.append(xx); tempZ.xy.append(xy); tempZ.yx.append(yx); tempZ.yy.append(yy)
+    Z_smpls = tempZ
+    f_smpls = tempf
 
     # need to get cubic splines now
     Z_css = AttrDict()
