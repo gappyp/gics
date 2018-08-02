@@ -21,6 +21,7 @@ from scipy.interpolate import interp1d
 
 # ======================================================================================================================
 hidden_init_fn = (Path(__file__).resolve().parent) / '.der_e'
+default_model_fn = (Path(__file__).resolve().parent) / 'respo_2777sites_TAS_edited.dat'
 
 parser = argparse.ArgumentParser(description='Derive electric field using impedance tensor and magnetic field data')
 group = parser.add_mutually_exclusive_group()
@@ -35,6 +36,7 @@ parser.add_argument('-c', action="store", dest="col_order", type=str, default='6
 parser.add_argument('-s', action="store", dest="signs", type=str, default='p,p,p,p', help='Signs to apply to Bx,By,Ex,Ey default (p,p,p,p)')
 parser.add_argument('--figs', action="store_true", dest="show_figs", help='Plot figures of source and derived data')
 parser.add_argument('--init-fn', action="store", dest="init_fn", type=Path, default=hidden_init_fn, help='Use a different initialization file')
+parser.add_argument('--model-fn', action="store", dest="model_fn", type=Path, default=default_model_fn, help='Use a different 3d model file (defaults to respo_2777sites_TAS_edited.dat in executable directory)')
 group.add_argument('--sigma', action="store", dest="sigma", type=float, help='Sigma for half-space')
 group.add_argument('--id', action="store", dest="id", type=str, help='3d model lat,long (e.g. 36.75S,143.25E)')
 
@@ -66,6 +68,9 @@ else:
     sys.exit('No impedance tensor source specified')        # TODO: make this print out to error
 
 # ----------------------------------------------------------------------------------------------------------------------
+if not args.model_fn.is_file():
+    sys.exit('3d model file does not exist')
+
 # deal with glob style filenames and check if files exist
 temp = []
 for fn in args.fns:
@@ -162,7 +167,7 @@ elif args.sigma:
     #print(Z.xy(0.01))
     #print(Z.xy(0.1))
 elif args.id:
-    ljw_model = pd.read_csv(Path(r"G:\python_projs\gics\respo_2777sites_TAS_edited.dat"), delim_whitespace=True, skiprows=8, header=None)
+    ljw_model = pd.read_csv(args.model_fn, delim_whitespace=True, skiprows=8, header=None)
     ljw_model['f'] = 1/ljw_model[0]
     this_site = ljw_model.loc[(ljw_model[2] == args.id[0]) & (ljw_model[3] == args.id[1])]             # TODO: replace with site
     assert len(this_site) != 0      # invalid key
