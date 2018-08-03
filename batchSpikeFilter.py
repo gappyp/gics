@@ -31,7 +31,7 @@ def spikeReject(channel):
             #replace value with 5pt median
             channel[i] = np.median(channel[(i-2):(i+3)])
             n+=1
-            print 'x',
+            print('x', end=' ')
     return(channel, n)
     
 
@@ -53,8 +53,8 @@ for fname in fileList:
 #												int, int, float, float, 
 #												float, float, float, float, 
 #												float))
-    print 'read in TS file ', fname
-    print '===================================='
+    print('read in TS file ', fname)
+    print('====================================')
     
     #extract the site name from the file name
     for i, char in enumerate(fname):
@@ -66,8 +66,8 @@ for fname in fileList:
     for col in range(6,13):
         timeSeries[:,col], n = spikeReject(timeSeries[:,col])
         spikes+=n
-        print 'Removed spikes from field, ', columns[col], n
-    print 'Total spikes removed from TS, ', siteID, spikes
+        print('Removed spikes from field, ', columns[col], n)
+    print('Total spikes removed from TS, ', siteID, spikes)
     
     np.savetxt(op.join(workdir,fname[:-4]+'_ds.txt'),timeSeries,fmt=['%1i']*6+['%.3f']*7)
     #save the spike removed TS, with original name _ds
@@ -90,7 +90,7 @@ for fname in fileList:
     configWrite.close()
 
     
-    print '\n================================'
+    print('\n================================')
 
 with open(op.join(workdir,'batch_inputs_ds.txt'),'w') as writeBatch:
     for rows in batchTxt:
